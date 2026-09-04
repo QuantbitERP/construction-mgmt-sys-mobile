@@ -34,10 +34,47 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
   @override
   void initState() {
     super.initState();
+    sl<ProjectSelectionService>().addListener(_onUniversalProjectChanged);
     _fetchSites();
     // Trigger initial load of approvals using active project
     final activeProj = sl<ProjectSelectionService>().selectedProject;
     context.read<ApprovalsBloc>().add(LoadApprovals(project: activeProj));
+  }
+
+  @override
+  void dispose() {
+    sl<ProjectSelectionService>().removeListener(_onUniversalProjectChanged);
+    super.dispose();
+  }
+
+  void _onUniversalProjectChanged() {
+    if (!mounted) return;
+    final universalProject = sl<ProjectSelectionService>().selectedProject;
+    final universalSite = sl<ProjectSelectionService>().selectedSite;
+
+    if (_selectedProject?.name == universalProject &&
+        _selectedSite == universalSite) {
+      return;
+    }
+
+    final projectState = context.read<ProjectBloc>().state;
+    Project? matchedProject;
+    if (projectState is ProjectLoaded && universalProject != null) {
+      try {
+        matchedProject = projectState.projects.firstWhere(
+          (p) => p.name == universalProject,
+        );
+      } catch (_) {}
+    }
+
+    setState(() {
+      _selectedProject = matchedProject;
+      _selectedSite = universalSite;
+    });
+
+    context.read<ApprovalsBloc>().add(
+      LoadApprovals(project: universalProject),
+    );
   }
 
   Future<void> _fetchSites() async {
@@ -78,47 +115,52 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
     final activeProjectName = sl<ProjectSelectionService>().selectedProject;
     final activeSiteName = sl<ProjectSelectionService>().selectedSite;
 
-    if (_selectedProject == null && activeProjectName != null) {
-      try {
-        _selectedProject = projects.firstWhere(
-          (p) => p.name == activeProjectName,
-        );
-      } catch (_) {}
+    if (activeProjectName != null) {
+      if (_selectedProject == null ||
+          _selectedProject!.name != activeProjectName) {
+        try {
+          _selectedProject = projects.firstWhere(
+            (p) => p.name == activeProjectName,
+          );
+        } catch (_) {}
+      }
     }
-    _selectedSite ??= activeSiteName;
+    _selectedSite = activeSiteName;
   }
 
   void _showSelectionSheet(BuildContext context, List<Project> projects) {
+    final approvalsBloc = context.read<ApprovalsBloc>();
     showGeneralDialog(
       context: context,
       barrierDismissible: true,
       barrierLabel: 'Dismiss',
       transitionDuration: const Duration(milliseconds: 300),
-      pageBuilder: (context, animation, secondaryAnimation) {
-        return ProjectSelectionDropdown(
-          projects: projects,
-          sites: _fetchedSites,
-          initialProject: _selectedProject,
-          initialSite: _selectedSite,
-          isLoadingSites: _isLoadingSites,
-          onSelected: (site, project) async {
-            if (mounted) {
-              setState(() {
-                _selectedSite = site;
-                _selectedProject = project;
-              });
-            }
-            await sl<ProjectSelectionService>().saveSelection(
-              site: site,
-              project: project.name,
-            );
-            // Reload approvals for the new project!
-            if (context.mounted) {
-              context.read<ApprovalsBloc>().add(
+      pageBuilder: (dialogContext, animation, secondaryAnimation) {
+        return BlocProvider.value(
+          value: approvalsBloc,
+          child: ProjectSelectionDropdown(
+            projects: projects,
+            sites: _fetchedSites,
+            initialProject: _selectedProject,
+            initialSite: _selectedSite,
+            isLoadingSites: _isLoadingSites,
+            onSelected: (site, project) async {
+              if (mounted) {
+                setState(() {
+                  _selectedSite = site;
+                  _selectedProject = project;
+                });
+              }
+              await sl<ProjectSelectionService>().saveSelection(
+                site: site,
+                project: project.name,
+              );
+              // Reload approvals for the new project!
+              approvalsBloc.add(
                 LoadApprovals(project: project.name),
               );
-            }
-          },
+            },
+          ),
         );
       },
       transitionBuilder: (context, animation, secondaryAnimation, child) {
@@ -220,29 +262,6 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
 
     return BlocBuilder<ApprovalsBloc, ApprovalsState>(
       builder: (context, state) {
-        // Sync project state in BLoC if globally selected project changes
-        final currentGlobalProject =
-            sl<ProjectSelectionService>().selectedProject;
-        if (state.project != currentGlobalProject &&
-            state.status != ApprovalsStatus.loading) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (projects.isNotEmpty && currentGlobalProject != null) {
-              try {
-                final matched = projects.firstWhere(
-                  (p) => p.name == currentGlobalProject,
-                );
-                setState(() {
-                  _selectedProject = matched;
-                  _selectedSite = sl<ProjectSelectionService>().selectedSite;
-                });
-              } catch (_) {}
-            }
-            context.read<ApprovalsBloc>().add(
-              LoadApprovals(project: currentGlobalProject),
-            );
-          });
-        }
-
         return Scaffold(
           backgroundColor: const Color(0xFFF2FAF6),
           drawer: Drawer(

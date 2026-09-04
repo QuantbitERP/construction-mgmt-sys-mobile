@@ -3,23 +3,38 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../../../core/error/failures.dart';
 import '../../domain/entities/user.dart';
 import '../../domain/repositories/auth_repository.dart';
+import '../../../../core/services/base_url_storage.dart';
+import '../../../../core/di/injection_container.dart';
 
 import 'package:frappe_mobile_sdk/frappe_mobile_sdk.dart';
 
 class AuthRepositoryImpl implements AuthRepository {
-  final FrappeSDK sdk;
+  final BaseUrlStorage baseUrlStorage;
   final SharedPreferences sharedPreferences;
   User? _currentUser;
 
   static const String _userKey = 'cached_user_id';
   static const String _usernameKey = 'cached_username';
 
-  AuthRepositoryImpl(this.sdk, this.sharedPreferences);
+  AuthRepositoryImpl(this.baseUrlStorage, this.sharedPreferences);
+
+  FrappeSDK get _sdk => sl<FrappeSDK>();
 
   @override
-  Future<Either<Failure, User>> login(String username, String password) async {
+  Future<Either<Failure, User>> login(
+    String url,
+    String username,
+    String password,
+  ) async {
     try {
-      final response = await sdk.auth.login(username, password);
+      final normalizedUrl = BaseUrlStorage.normalizeUrl(url);
+      if (!BaseUrlStorage.isValidUrl(normalizedUrl)) {
+        return Left(AuthFailure('Please enter a valid Server URL.'));
+      }
+
+      await reconfigureFrappeSdk(normalizedUrl);
+
+      final response = await _sdk.auth.login(username, password);
 
       if (response.isNotEmpty) {
         final userId = response['full_name'] ?? response['message'] ?? username;
@@ -52,7 +67,7 @@ class AuthRepositoryImpl implements AuthRepository {
   @override
   Future<void> logout() async {
     try {
-      await sdk.auth.logout();
+      await _sdk.auth.logout();
     } catch (_) {
       // Ignore API errors during logout to guarantee local user state is cleared
     }
@@ -67,10 +82,15 @@ class AuthRepositoryImpl implements AuthRepository {
       return Right(_currentUser!);
     }
 
+    final savedUrl = await baseUrlStorage.getBaseUrl();
+    if (savedUrl == null || savedUrl.isEmpty) {
+      return Left(AuthFailure('No user logged in.'));
+    }
+
     final userId = sharedPreferences.getString(_userKey);
     final username = sharedPreferences.getString(_usernameKey);
 
-    if (userId != null && username != null && sdk.isAuthenticated) {
+    if (userId != null && username != null && _sdk.isAuthenticated) {
       _currentUser = User(id: userId, username: username);
       return Right(_currentUser!);
     }

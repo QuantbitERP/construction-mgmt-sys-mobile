@@ -66,6 +66,7 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     sl<HomepageReloadNotifier>().addListener(_fetchCounts);
+    sl<ProjectSelectionService>().addListener(_onUniversalProjectChanged);
     _loadHomepagePreference();
     _fetchSites();
     _fetchCompany();
@@ -75,7 +76,36 @@ class _HomePageState extends State<HomePage> {
   @override
   void dispose() {
     sl<HomepageReloadNotifier>().removeListener(_fetchCounts);
+    sl<ProjectSelectionService>().removeListener(_onUniversalProjectChanged);
     super.dispose();
+  }
+
+  void _onUniversalProjectChanged() {
+    if (!mounted) return;
+    final universalProject = sl<ProjectSelectionService>().selectedProject;
+    final universalSite = sl<ProjectSelectionService>().selectedSite;
+
+    if (_selectedProject?.name == universalProject &&
+        _selectedSite == universalSite) {
+      return;
+    }
+
+    final projectState = context.read<ProjectBloc>().state;
+    Project? matchedProject;
+    if (projectState is ProjectLoaded && universalProject != null) {
+      final matches =
+          projectState.projects.where((p) => p.name == universalProject);
+      if (matches.isNotEmpty) {
+        matchedProject = matches.first;
+      }
+    }
+
+    setState(() {
+      _selectedProject = matchedProject;
+      _selectedSite = universalSite;
+    });
+
+    _fetchCounts();
   }
 
   Future<void> _loadHomepagePreference() async {
@@ -944,16 +974,14 @@ class _HomePageState extends State<HomePage> {
               state is ProjectLoaded &&
               state.projects.isNotEmpty &&
               _selectedProject == null) {
-            final prefs = await SharedPreferences.getInstance();
-            final cachedProjectName = prefs.getString(
-              'last_selected_project_name',
-            );
-            final cachedSite = prefs.getString('last_selected_site');
+            final activeProjectName =
+                sl<ProjectSelectionService>().selectedProject;
+            final activeSite = sl<ProjectSelectionService>().selectedSite;
 
             Project? matchedProject;
-            if (cachedProjectName != null) {
+            if (activeProjectName != null) {
               final matches = state.projects.where(
-                (p) => p.name == cachedProjectName,
+                (p) => p.name == activeProjectName,
               );
               if (matches.isNotEmpty) {
                 matchedProject = matches.first;
@@ -962,7 +990,7 @@ class _HomePageState extends State<HomePage> {
 
             if (matchedProject != null) {
               final site =
-                  cachedSite ?? matchedProject.site ?? 'Unspecified Site';
+                  activeSite ?? matchedProject.site ?? 'Unspecified Site';
               setState(() {
                 _selectedProject = matchedProject;
                 _selectedSite = site;

@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:cms/core/theme/app_colors.dart';
+import 'package:cms/core/services/base_url_storage.dart';
+import 'package:cms/core/di/injection_container.dart' as di;
 import 'package:cms/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:cms/features/auth/presentation/bloc/auth_event.dart';
 import 'package:cms/features/auth/presentation/bloc/auth_state.dart';
@@ -17,12 +19,30 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage> {
   final _formKey = GlobalKey<FormState>();
+  final _urlController = TextEditingController();
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
 
   @override
+  void initState() {
+    super.initState();
+    _loadSavedBaseUrl();
+  }
+
+  Future<void> _loadSavedBaseUrl() async {
+    final storage = di.sl<BaseUrlStorage>();
+    final savedUrl = await storage.getBaseUrl();
+    if (savedUrl != null && savedUrl.isNotEmpty && mounted) {
+      setState(() {
+        _urlController.text = savedUrl;
+      });
+    }
+  }
+
+  @override
   void dispose() {
+    _urlController.dispose();
     _usernameController.dispose();
     _passwordController.dispose();
     super.dispose();
@@ -199,7 +219,28 @@ class _LoginPageState extends State<LoginPage> {
                               ),
                               SizedBox(height: sizeContextOf(context, 14)),
                               TextFormField(
+                                controller: _urlController,
+                                keyboardType: TextInputType.url,
+                                textInputAction: TextInputAction.next,
+                                decoration: const InputDecoration(
+                                  labelText: 'Server URL',
+                                  prefixIcon: Icon(Icons.cloud_outlined),
+                                  hintText: 'https://your-site.frappe.cloud',
+                                ),
+                                validator: (value) {
+                                  if (value == null || value.trim().isEmpty) {
+                                    return 'Server URL is required';
+                                  }
+                                  if (!BaseUrlStorage.isValidUrl(value.trim())) {
+                                    return 'Please enter a valid URL';
+                                  }
+                                  return null;
+                                },
+                              ),
+                              SizedBox(height: sizeContextOf(context, 20)),
+                              TextFormField(
                                 controller: _usernameController,
+                                textInputAction: TextInputAction.next,
                                 decoration: const InputDecoration(
                                   labelText: 'Email ID',
                                   prefixIcon: Icon(Icons.person_outline),
@@ -246,7 +287,8 @@ class _LoginPageState extends State<LoginPage> {
                                             false) {
                                           context.read<AuthBloc>().add(
                                             LoginSubmitted(
-                                              _usernameController.text,
+                                              _urlController.text.trim(),
+                                              _usernameController.text.trim(),
                                               _passwordController.text,
                                             ),
                                           );

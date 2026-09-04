@@ -16,12 +16,9 @@ import 'package:cms/core/services/project_selection_service.dart';
 import 'package:cms/core/error/session_manager.dart';
 import 'package:cms/core/services/http_overrides.dart';
 
-import 'package:flutter_dotenv/flutter_dotenv.dart';
-
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   HttpOverrides.global = SessionTimeoutHttpOverrides();
-  await dotenv.load(fileName: ".env");
   await di.init();
   runApp(const MyApp());
 }

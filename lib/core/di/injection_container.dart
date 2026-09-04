@@ -2,6 +2,7 @@ import 'package:get_it/get_it.dart';
 import 'package:frappe_mobile_sdk/frappe_mobile_sdk.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cms/core/config/app_config.dart' as cfg;
+import 'package:cms/core/services/base_url_storage.dart';
 import 'package:cms/features/auth/data/repositories/auth_repository_impl.dart';
 import 'package:cms/features/auth/domain/repositories/auth_repository.dart';
 import 'package:cms/features/auth/domain/usecases/login_usecase.dart';
@@ -124,14 +125,33 @@ Future<void> init() async {
   final sharedPreferences = await SharedPreferences.getInstance();
   sl.registerLazySingleton(() => sharedPreferences);
 
+  // Storage
+  final baseUrlStorage = BaseUrlStorage();
+  sl.registerLazySingleton<BaseUrlStorage>(() => baseUrlStorage);
+
   // Services
   sl.registerLazySingleton(() => ProjectSelectionService(sl()));
   sl.registerLazySingleton(() => HomepageReloadNotifier());
 
   // Frappe SDK
-  final sdk = FrappeSDK(baseUrl: cfg.AppConfig.baseUrl);
-  await sdk.initialize(true);
-  sl.registerSingleton<FrappeSDK>(sdk);
+  final savedBaseUrl = await baseUrlStorage.getBaseUrl();
+  if (savedBaseUrl != null && savedBaseUrl.isNotEmpty) {
+    cfg.AppConfig.baseUrl = savedBaseUrl;
+    final sdk = FrappeSDK(baseUrl: savedBaseUrl);
+    try {
+      await sdk.initialize(true);
+    } catch (_) {
+      try {
+        await sdk.initialize(false);
+      } catch (_) {}
+    }
+    sl.registerSingleton<FrappeSDK>(sdk);
+  } else {
+    // If no URL stored yet (first launch), register a placeholder SDK.
+    // Replaced upon login via reconfigureFrappeSdk.
+    final sdk = FrappeSDK(baseUrl: 'https://placeholder.invalid');
+    sl.registerSingleton<FrappeSDK>(sdk);
+  }
 
   // BLoC
   sl.registerFactory(() => AuthBloc(loginUseCase: sl(), authRepository: sl()));
@@ -361,4 +381,64 @@ Future<void> init() async {
   sl.registerLazySingleton<TaskProgressRepository>(
     () => TaskProgressRepositoryImpl(sl()),
   );
+}
+
+/// Dynamically updates FrappeSDK and saves the new base URL in secure storage.
+/// Resets dependent singletons so they bind to the new SDK instance.
+Future<void> reconfigureFrappeSdk(String rawBaseUrl) async {
+  final normalizedUrl = BaseUrlStorage.normalizeUrl(rawBaseUrl);
+  cfg.AppConfig.baseUrl = normalizedUrl;
+
+  final baseUrlStorage = sl<BaseUrlStorage>();
+  await baseUrlStorage.saveBaseUrl(normalizedUrl);
+
+  if (sl.isRegistered<FrappeSDK>()) {
+    final existingSdk = sl<FrappeSDK>();
+    if (existingSdk.baseUrl == normalizedUrl) {
+      return;
+    }
+    sl.unregister<FrappeSDK>();
+  }
+
+  final newSdk = FrappeSDK(baseUrl: normalizedUrl);
+  await newSdk.initialize(false);
+  sl.registerSingleton<FrappeSDK>(newSdk);
+
+  _resetSdkDependentSingletons();
+}
+
+void _resetSdkDependentSingletons() {
+  if (sl.isRegistered<ProjectRemoteDataSource>()) {
+    sl.resetLazySingleton<ProjectRemoteDataSource>();
+  }
+  if (sl.isRegistered<TaskRemoteDataSource>()) {
+    sl.resetLazySingleton<TaskRemoteDataSource>();
+  }
+  if (sl.isRegistered<MaterialRequestRemoteDataSource>()) {
+    sl.resetLazySingleton<MaterialRequestRemoteDataSource>();
+  }
+  if (sl.isRegistered<SiteDiaryRemoteDataSource>()) {
+    sl.resetLazySingleton<SiteDiaryRemoteDataSource>();
+  }
+  if (sl.isRegistered<StockEntryRemoteDataSource>()) {
+    sl.resetLazySingleton<StockEntryRemoteDataSource>();
+  }
+  if (sl.isRegistered<TaskProgressRemoteDataSource>()) {
+    sl.resetLazySingleton<TaskProgressRemoteDataSource>();
+  }
+  if (sl.isRegistered<ManpowerUsageRemoteDataSource>()) {
+    sl.resetLazySingleton<ManpowerUsageRemoteDataSource>();
+  }
+  if (sl.isRegistered<EquipmentUsageRemoteDataSource>()) {
+    sl.resetLazySingleton<EquipmentUsageRemoteDataSource>();
+  }
+  if (sl.isRegistered<MaterialRequestRepository>()) {
+    sl.resetLazySingleton<MaterialRequestRepository>();
+  }
+  if (sl.isRegistered<ApprovalsRepository>()) {
+    sl.resetLazySingleton<ApprovalsRepository>();
+  }
+  if (sl.isRegistered<AuthRepository>()) {
+    sl.resetLazySingleton<AuthRepository>();
+  }
 }

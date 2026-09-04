@@ -1,5 +1,3 @@
-import 'package:flutter_dotenv/flutter_dotenv.dart';
-
 class AppConfig {
   /// App name shown in UI.
   static const String appName = 'ConstructionMS';
@@ -13,14 +11,12 @@ class AppConfig {
   /// Home screen layout mode. Allowed values: 'list' or 'folder'.
   static const String homeScreenLayout = 'list';
 
-  /// Frappe server base URL (with trailing slash).
-  static String get baseUrl => dotenv.get('BASE_URL');
+  /// Frappe server base URL configured by the user.
+  static String baseUrl = '';
 
   /// OAuth client ID from Frappe OAuth Client settings
-  static String get oauthClientId =>
-      dotenv.get('OAUTH_CLIENT_ID', fallback: 'your_oauth_client_id');
+  static String oauthClientId = '';
 
   /// OAuth client secret from Frappe OAuth Client settings
-  static String get oauthClientSecret =>
-      dotenv.get('OAUTH_CLIENT_SECRET', fallback: 'your_oauth_client_secret');
+  static String oauthClientSecret = '';
 }
